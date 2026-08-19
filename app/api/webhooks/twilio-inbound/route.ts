@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { postSlack } from '@/lib/slack';
+export const dynamic = 'force-dynamic';
 
 // Twilio inbound SMS webhook. Set this as the "A message comes in" webhook
 // on your Twilio phone number (POST, application/x-www-form-urlencoded).
