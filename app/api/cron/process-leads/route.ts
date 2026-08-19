@@ -8,6 +8,7 @@ import {
     PHASE1_PLAN, PHASE1_DAYS, PHASE2_END_DAY, PHASE2_TOUCHES_PER_DAY,
     INTRA_DAY_GAP_HOURS, NEXT_DAY_GAP_HOURS, phase1DayPlan, isPhase2, isSequenceComplete,
 } from '@/lib/playbook';
+export const dynamic = 'force-dynamic';
 
 function authorized(req: NextRequest) {
     const secret = process.env.CRON_SECRET;
