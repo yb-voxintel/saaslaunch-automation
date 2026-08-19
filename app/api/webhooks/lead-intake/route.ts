@@ -4,6 +4,7 @@ import { sendSms } from '@/lib/twilio';
 import { postSlack, callReminderText } from '@/lib/slack';
 import { render, baseVars } from '@/lib/render';
 import { PHASE1_PLAN, NEXT_DAY_GAP_HOURS } from '@/lib/playbook';
+export const dynamic = 'force-dynamic';
 
 // Generic inbound lead intake. Point your ad platform / landing page form /
 // booking tool's "new lead" webhook here. Body shape:
