@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendSms } from '@/lib/twilio';
 import { postSlack } from '@/lib/slack';
 import { render, baseVars } from '@/lib/render';
+export const dynamic = 'force-dynamic';
 
 function authorized(req: NextRequest) {
     const secret = process.env.CRON_SECRET;
