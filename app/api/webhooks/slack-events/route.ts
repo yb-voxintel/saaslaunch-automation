@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
 
 // Slack Events API endpoint. Configure this as your Request URL under
 // Slack app > Event Subscriptions, subscribed to `message.channels` (or
