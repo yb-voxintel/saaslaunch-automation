@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendSms } from '@/lib/twilio';
 import { postSlack } from '@/lib/slack';
 import { render, baseVars } from '@/lib/render';
+export const dynamic = 'force-dynamic';
 
 // Booking-tool webhook (Calendly-shaped, or generic). Point your booking
 // tool's webhook here to trigger the Pre-Call Confirmation Flow.
