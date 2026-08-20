@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendSms } from '@/lib/twilio';
+import { sendEmail } from '@/lib/sendgrid';
 import { placeOutboundCall } from '@/lib/retell';
 import { postSlack, callReminderText } from '@/lib/slack';
 import { render, baseVars } from '@/lib/render';
 import { PHASE1_PLAN, NEXT_DAY_GAP_HOURS } from '@/lib/playbook';
 export const dynamic = 'force-dynamic';
 
-// Generic inbound lead intake. Point your ad platform / landing page form /
-// booking tool's "new lead" webhook here. Body shape:
-// { first_name, last_name, phone, email, source?, utm? }
 export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { first_name, last_name, phone, email, source, utm } = body;
@@ -43,8 +41,6 @@ if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
 }
 
-// Day 0 immediate actions, fired synchronously so the 5-minute speed-to-lead
-// window is actually met (rather than waiting on the next cron tick).
 const vars = baseVars(lead);
     let smsResult = null;
     if (phone) {
@@ -69,9 +65,6 @@ const vars = baseVars(lead);
         }
     }
 
-// Day 0 auto-call: trigger the Retell voice agent to call the lead
-// immediately, in parallel with the SMS above. Independent try/catch so a
-// call failure never blocks the SMS/Slack paths (and vice versa).
 let callResult = null;
     if (phone) {
         try {
@@ -96,6 +89,28 @@ let callResult = null;
         }
     }
 
+let emailResult = null;
+    if (email) {
+        const subject = `Thanks for signing up, ${first_name || 'there'}`;
+        const text = render(
+            'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}. Thanks for signing up - I will be reaching out shortly to help you get started. Feel free to reply to this email with any questions in the meantime.',
+            vars
+            );
+        try {
+            const sent = await sendEmail(email, subject, text);
+            emailResult = sent.messageId;
+            await db.from('inbound_touch_log').insert({
+                lead_id: lead.id, day: 0, channel: 'email', template_key: 'day0_immediate',
+                status: 'sent', external_id: sent.messageId, content: text,
+            });
+        } catch (e: any) {
+            await db.from('inbound_touch_log').insert({
+                lead_id: lead.id, day: 0, channel: 'email', template_key: 'day0_immediate',
+                status: 'failed', content: e.message,
+            });
+        }
+    }
+
 try {
     await postSlack(
         callReminderText({
@@ -108,5 +123,5 @@ try {
     console.error('Slack notify failed', e);
 }
 
-return NextResponse.json({ lead_id: lead.id, sms_sid: smsResult, retell_call_id: callResult });
+return NextResponse.json({ lead_id: lead.id, sms_sid: smsResult, retell_call_id: callResult, email_id: emailResult });
 }
