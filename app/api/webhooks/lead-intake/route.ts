@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendSms } from '@/lib/twilio';
 import { sendEmail } from '@/lib/sendgrid';
 import { placeOutboundCall } from '@/lib/retell';
+import { upsertContact } from '@/lib/hubspot';
 import { postSlack, callReminderText } from '@/lib/slack';
 import { render, baseVars } from '@/lib/render';
 import { PHASE1_PLAN, NEXT_DAY_GAP_HOURS } from '@/lib/playbook';
@@ -111,6 +112,22 @@ let emailResult = null;
         }
     }
 
+// Sync to HubSpot as a contact the moment the lead lands. Independent
+// try/catch so a HubSpot outage never blocks SMS/call/email.
+let hubspotContactId: string | null = null;
+    try {
+        hubspotContactId = await upsertContact({ first_name, last_name, email, phone });
+        await db.from('inbound_touch_log').insert({
+            lead_id: lead.id, day: 0, channel: 'hubspot', template_key: 'contact_sync',
+            status: 'sent', external_id: hubspotContactId, content: 'HubSpot contact created/updated',
+        });
+    } catch (e: any) {
+        await db.from('inbound_touch_log').insert({
+            lead_id: lead.id, day: 0, channel: 'hubspot', template_key: 'contact_sync',
+            status: 'failed', content: e.message,
+        });
+    }
+
 try {
     await postSlack(
         callReminderText({
@@ -123,5 +140,5 @@ try {
     console.error('Slack notify failed', e);
 }
 
-return NextResponse.json({ lead_id: lead.id, sms_sid: smsResult, retell_call_id: callResult, email_id: emailResult });
+return NextResponse.json({ lead_id: lead.id, sms_sid: smsResult, retell_call_id: callResult, email_id: emailResult, hubspot_contact_id: hubspotContactId });
 }
