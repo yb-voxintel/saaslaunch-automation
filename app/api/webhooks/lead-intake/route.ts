@@ -50,7 +50,7 @@ const vars = baseVars(lead);
         .select('body')
         .eq('template_key', 'day0_immediate')
         .single();
-        const text = render(tmpl?.body || 'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}, got a quick minute to chat?', vars);
+        const text = render(tmpl?.body || 'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}, got a quick minute to chat? Or grab a time that works for you here: https://calendly.com/yb-voxintelai/voxintel-intetrest-meeting', vars);
         try {
             const sent = await sendSms(phone, text);
             smsResult = sent.sid;
@@ -94,7 +94,7 @@ let emailResult = null;
     if (email) {
         const subject = `Thanks for signing up, ${first_name || 'there'}`;
         const text = render(
-            'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}. Thanks for signing up - I will be reaching out shortly to help you get started. Feel free to reply to this email with any questions in the meantime.',
+            'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}. Thanks for signing up - I will be reaching out shortly to help you get started. Feel free to reply to this email with any questions, or grab a time that works for you here: https://calendly.com/yb-voxintelai/voxintel-intetrest-meeting',
             vars
             );
         try {
@@ -112,20 +112,21 @@ let emailResult = null;
         }
     }
 
-// Sync to HubSpot as a contact the moment the lead lands. Independent
-// try/catch so a HubSpot outage never blocks SMS/call/email.
-let hubspotContactId: string | null = null;
-    try {
-        hubspotContactId = await upsertContact({ first_name, last_name, email, phone });
-        await db.from('inbound_touch_log').insert({
-            lead_id: lead.id, day: 0, channel: 'hubspot', template_key: 'contact_sync',
-            status: 'sent', external_id: hubspotContactId, content: 'HubSpot contact created/updated',
-        });
-    } catch (e: any) {
-        await db.from('inbound_touch_log').insert({
-            lead_id: lead.id, day: 0, channel: 'hubspot', template_key: 'contact_sync',
-            status: 'failed', content: e.message,
-        });
+let hubspotContactId = null;
+    if (email || phone) {
+        try {
+            const contactId = await upsertContact({ first_name, last_name, email, phone });
+            hubspotContactId = contactId;
+            await db.from('inbound_touch_log').insert({
+                lead_id: lead.id, day: 0, channel: 'hubspot', template_key: 'contact_sync',
+                status: 'sent', external_id: contactId, content: 'HubSpot contact created/updated',
+            });
+        } catch (e: any) {
+            await db.from('inbound_touch_log').insert({
+                lead_id: lead.id, day: 0, channel: 'hubspot', template_key: 'contact_sync',
+                status: 'failed', content: e.message,
+            });
+        }
     }
 
 try {
