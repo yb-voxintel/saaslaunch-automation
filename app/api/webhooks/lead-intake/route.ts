@@ -50,7 +50,7 @@ const vars = baseVars(lead);
         .select('body')
         .eq('template_key', 'day0_immediate')
         .single();
-        const text = render(tmpl?.body || 'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}, got a quick minute to chat? Or grab a time that works for you here: https://calendly.com/yb-voxintelai/voxintel-intetrest-meeting', vars);
+        const text = render(tmpl?.body || 'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}, got a quick minute to chat? Or grab a time that works for you here: https://bit.ly/4x7rCqd', vars);
         try {
             const sent = await sendSms(phone, text);
             smsResult = sent.sid;
