@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, unstable_after as after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendSms } from '@/lib/twilio';
 import { sendEmail } from '@/lib/sendgrid';
@@ -8,6 +8,7 @@ import { postSlack, callReminderText } from '@/lib/slack';
 import { render, baseVars } from '@/lib/render';
 import { PHASE1_PLAN, NEXT_DAY_GAP_HOURS } from '@/lib/playbook';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
@@ -68,26 +69,29 @@ const vars = baseVars(lead);
 
 let callResult = null;
     if (phone) {
-        try {
-            const call = await placeOutboundCall(phone, {
-                first_name: first_name || '',
-                last_name: last_name || '',
-                email: email || '',
-                phone,
-                signup_source: source || 'saaslaunch_ads',
-                campaign: utm?.campaign || '',
-            });
-            callResult = call.call_id;
-            await db.from('inbound_touch_log').insert({
-                lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
-                status: 'sent', external_id: call.call_id, content: 'Retell outbound call triggered',
-            });
-        } catch (e: any) {
-            await db.from('inbound_touch_log').insert({
-                lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
-                status: 'failed', content: e.message,
-            });
-        }
+        // Fire-and-forget: runs after the response is sent so Slack's 3s
+        // webhook ack isn't blocked, ~55s after the immediate Day-0 SMS.
+        after(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 55000));
+            try {
+                const call = await placeOutboundCall(phone, {
+                    first_name: first_name || '',
+                    email: email || '',
+                    phone,
+                    signup_source: source || 'saaslaunch_ads',
+                    campaign: utm?.campaign || '',
+                });
+                await db.from('inbound_touch_log').insert({
+                    lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
+                    status: 'sent', external_id: call.call_id, content: 'Retell outbound call triggered ~55s after Day-0 SMS',
+                });
+            } catch (e: any) {
+                await db.from('inbound_touch_log').insert({
+                    lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
+                    status: 'failed', content: e.message,
+                });
+            }
+        });
     }
 
 let emailResult = null;
