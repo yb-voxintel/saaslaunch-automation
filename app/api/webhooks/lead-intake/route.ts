@@ -93,7 +93,7 @@ let emailResult = null;
     if (email) {
         const subject = `Thanks for signing up, ${first_name || 'there'}`;
         const text = render(
-            'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}. Thanks for signing up - I will be reaching out shortly to help you get started. Feel free to reply to this email with any questions, or grab a time that works for you here: https://calendly.com/yb-voxintelai/voxintel-intetrest-meeting',
+            'Hey {{first_name}}, {{sdr_name}} here from {{company_name}}. Thanks for signing up - I will be reaching out shortly to help you get started. Feel free to reply to this email with any questions, or grab a time that works for you here: https://bit.ly/4x7rCqd',
             vars
             );
         try {
