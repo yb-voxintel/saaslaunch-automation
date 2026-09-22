@@ -3,12 +3,22 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendSms } from '@/lib/twilio';
 import { sendEmail } from '@/lib/sendgrid';
 import { placeOutboundCall } from '@/lib/retell';
+import { isWithinCallingHours } from '@/lib/calling-hours';
 import { upsertContact } from '@/lib/hubspot';
 import { postSlack, callReminderText } from '@/lib/slack';
 import { render, baseVars } from '@/lib/render';
 import { PHASE1_PLAN, NEXT_DAY_GAP_HOURS } from '@/lib/playbook';
 export const dynamic = 'force-dynamic';
 
+// Generic inbound lead intake. Point your ad platform / landing page form /
+// booking tool's "new lead" webhook here. Body shape:
+// { first_name, last_name, phone, email, source?, utm? }
+//
+// The Day-0 automated call is gated to 9am-7pm ET (lib/calling-hours.ts) - no
+// day-of-week restriction, so a weekend signup within that window still gets
+// called immediately. Outside the window the call is skipped for now and
+// picked up by the Phase 1 sequence's own call step instead. SMS/email/Slack
+// notify and HubSpot sync are not gated - only the phone call.
 export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { first_name, last_name, phone, email, source, utm } = body;
@@ -68,23 +78,30 @@ const vars = baseVars(lead);
 
 let callResult = null;
     if (phone) {
-        try {
-            const call = await placeOutboundCall(phone, {
-                first_name: first_name || '',
-                email: email || '',
-                phone,
-                signup_source: source || 'saaslaunch_ads',
-                campaign: utm?.campaign || '',
-            });
-            callResult = call.call_id;
+        if (isWithinCallingHours()) {
+            try {
+                const call = await placeOutboundCall(phone, {
+                    first_name: first_name || '',
+                    email: email || '',
+                    phone,
+                    signup_source: source || 'saaslaunch_ads',
+                    campaign: utm?.campaign || '',
+                });
+                callResult = call.call_id;
+                await db.from('inbound_touch_log').insert({
+                    lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
+                    status: 'sent', external_id: call.call_id, content: 'Retell outbound call triggered',
+                });
+            } catch (e: any) {
+                await db.from('inbound_touch_log').insert({
+                    lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
+                    status: 'failed', content: e.message,
+                });
+            }
+        } else {
             await db.from('inbound_touch_log').insert({
                 lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
-                status: 'sent', external_id: call.call_id, content: 'Retell outbound call triggered',
-            });
-        } catch (e: any) {
-            await db.from('inbound_touch_log').insert({
-                lead_id: lead.id, day: 0, channel: 'call', template_key: 'day0_auto_call',
-                status: 'failed', content: e.message,
+                status: 'skipped', content: 'deferred - outside 9am-7pm ET calling window, will be covered by Phase 1 call step',
             });
         }
     }
