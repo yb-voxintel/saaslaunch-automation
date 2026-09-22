@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendSms } from '@/lib/twilio';
 import { sendEmail } from '@/lib/sendgrid';
 import { placeOutboundCall } from '@/lib/retell';
+import { isWithinCallingHours, nextCallingWindowStart } from '@/lib/calling-hours';
 import { render, baseVars } from '@/lib/render';
 import {
     PHASE1_PLAN, PHASE1_DAYS, PHASE2_END_DAY, PHASE2_TOUCHES_PER_DAY,
@@ -19,6 +20,8 @@ function authorized(req: NextRequest) {
 // Vercel Cron target, every 15 minutes. Walks every lead whose next_action_at
 // is due, executes that touch (sms/email/call all automated via Twilio/Retell),
 // and schedules the next one per the Phase 1 / Phase 2 plan in lib/playbook.ts.
+// Calls are additionally gated to 9am-7pm ET (lib/calling-hours.ts); a call due
+// outside that window is deferred (not skipped) to the next valid window.
 export async function GET(req: NextRequest) {
     if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
@@ -54,13 +57,24 @@ async function placeFollowUpCall(
     day: number,
     templateKey: string,
     extraVars: Record<string, string> = {}
-) {
+): Promise<{ deferred: boolean }> {
     if (!lead.phone) {
         await db.from('inbound_touch_log').insert({
             lead_id: lead.id, day, channel: 'call', template_key: templateKey, status: 'skipped', content: 'no phone on file',
         });
-        return;
+        return { deferred: false };
     }
+
+    if (!isWithinCallingHours()) {
+        await db.from('inbound_leads').update({
+            next_action_at: nextCallingWindowStart().toISOString(),
+        }).eq('id', lead.id);
+        await db.from('inbound_touch_log').insert({
+            lead_id: lead.id, day, channel: 'call', template_key: templateKey, status: 'skipped', content: 'deferred - outside 9am-7pm ET calling window',
+        });
+        return { deferred: true };
+    }
+
     try {
         const call = await placeOutboundCall(lead.phone, {
             first_name: lead.first_name || '',
@@ -79,6 +93,7 @@ async function placeFollowUpCall(
             lead_id: lead.id, day, channel: 'call', template_key: templateKey, status: 'failed', content: e.message,
         });
     }
+    return { deferred: false };
 }
 
 async function processLead(db: ReturnType<typeof supabaseAdmin>, lead: any) {
@@ -93,10 +108,11 @@ async function processLead(db: ReturnType<typeof supabaseAdmin>, lead: any) {
 
     if (isPhase2(day)) {
         const finalDay = day === PHASE2_END_DAY && touchIndex === PHASE2_TOUCHES_PER_DAY - 1;
-        await placeFollowUpCall(db, lead, day, 'phase2_call', {
+        const result = await placeFollowUpCall(db, lead, day, 'phase2_call', {
             day: String(day),
             final_attempt: finalDay ? 'true' : 'false',
         });
+        if (result.deferred) return { lead_id: lead.id, action: 'deferred_outside_calling_hours', day };
         return scheduleNext(db, lead, day, touchIndex, PHASE2_TOUCHES_PER_DAY);
     }
 
@@ -109,10 +125,11 @@ async function processLead(db: ReturnType<typeof supabaseAdmin>, lead: any) {
     const channel = plan.order[touchIndex];
 
     if (channel === 'call') {
-        await placeFollowUpCall(db, lead, day, 'phase1_call', {
+        const result = await placeFollowUpCall(db, lead, day, 'phase1_call', {
             day: String(day),
             angle: plan.angle || '',
         });
+        if (result.deferred) return { lead_id: lead.id, action: 'deferred_outside_calling_hours', day };
     } else if (channel === 'sms') {
         if (lead.phone) {
             const { data: tmpl } = await db.from('sms_templates').select('body').eq('template_key', plan.smsKey).single();
